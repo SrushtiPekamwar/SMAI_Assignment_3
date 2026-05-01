@@ -1,0 +1,38 @@
+[
+  {
+    "Method": "Baseline \u2014 Author H5 (Keras)",
+    "Trainable": "0 (none)",
+    "Epochs": 0,
+    "Val Acc (Best)": "N/A",
+    "Test Top-1": "97.60%",
+    "Test Top-3": "99.60%",
+    "Macro F1": "\u2014"
+  },
+  {
+    "Method": "A \u2014 Linear Probe",
+    "Trainable": "~1.3K",
+    "Epochs": 5,
+    "Val Acc (Best)": "89.80%",
+    "Test Top-1": "See Phase 1",
+    "Test Top-3": "\u2014",
+    "Macro F1": "\u2014"
+  },
+  {
+    "Method": "B \u2014 Fine-Tune Last Block",
+    "Trainable": "~2.9M",
+    "Epochs": "5+10",
+    "Val Acc (Best)": "96.00%",
+    "Test Top-1": "96.60%",
+    "Test Top-3": "99.40%",
+    "Macro F1": "96.45%"
+  },
+  {
+    "Method": "C \u2014 Full Fine-Tune",
+    "Trainable": "5.3M",
+    "Epochs": 10,
+    "Val Acc (Best)": "\u2014",
+    "Test Top-1": "96.60%",
+    "Test Top-3": "99.20%",
+    "Macro F1": "96.53%"
+  }
+]

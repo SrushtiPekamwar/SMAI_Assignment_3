@@ -1,0 +1,17 @@
+{
+  "single": {
+    "n_prompts": 1,
+    "Top-1 (%)": 29.0,
+    "Top-3 (%)": 41.0
+  },
+  "ensemble_3": {
+    "n_prompts": 3,
+    "Top-1 (%)": 30.8,
+    "Top-3 (%)": 43.2
+  },
+  "ensemble_5": {
+    "n_prompts": 5,
+    "Top-1 (%)": 28.2,
+    "Top-3 (%)": 44.2
+  }
+}

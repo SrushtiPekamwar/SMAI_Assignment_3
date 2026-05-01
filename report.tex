@@ -1,0 +1,161 @@
+\documentclass[journal, twocolumn]{IEEEtran}
+
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{cite}
+\usepackage{float}
+
+\begin{document}
+
+\title{Butterfly Species Identification:\\ Why We Fine-Tune Instead of Relying on Zero-Shot Models}
+
+\author{Anurag Kacholiya \\ SMAI Assignment 3}
+
+\maketitle
+
+\begin{abstract}
+Identifying butterfly species from photos is tricky. Many species look incredibly similar to one another due to biological mimicry, while individuals within the same species can look totally different depending on their gender or how their wings are folded. In this project, we built a Streamlit application to classify 100 species of butterflies. Along the way, we tested two main approaches: using a powerful, pre-trained "Zero-Shot" model (CLIP) right out of the box, versus taking an EfficientNet model and carefully "fine-tuning" it to our specific dataset. We discovered that while CLIP is great for general tasks, it struggles heavily with fine-grained biology—only guessing the right species 31\% of the time. However, by gently unfreezing just the last block of our EfficientNet model, we jumped to a massive 96.6\% accuracy. This report breaks down why that happens visually and intuitively.
+\end{abstract}
+
+\section{The Challenge: Fine-Grained Biology}
+Imagine trying to tell two identical-looking cars apart, but the only difference is the stitching on the steering wheel. That's what ``Fine-Grained Visual Categorization'' feels like for a neural network. 
+
+Traditional image classification asks a model to tell a dog from a hotdog. Here, we are asking the model to look at a Viceroy butterfly and a Monarch butterfly and confidently tell them apart, even though they evolved to look identical to fool predators! On top of that, a user might upload a photo where the butterfly is upside down, hidden in shadows, or blurred. 
+
+To tackle this, we curated a pipeline that doesn't just guess, but actually gives the user top-3 probabilities along with dynamically loaded Wikipedia summaries and IUCN conservation statuses.
+
+\section{Approach 1: The Zero-Shot Hope (CLIP)}
+The quickest way to build an AI app today is to use a ``Foundation Model'' like CLIP from OpenAI. CLIP has already seen 400 million images and text pairs. The theory is called ``Zero-Shot inference''—we don't train the model at all. We just give it an image, give it 100 text descriptions (like ``A photo of an Adonis butterfly''), and ask it which text matches the image best.
+
+To give CLIP the best chance, we didn't just use one text description. We used an ``ensemble'' (a combination) of phrases like:
+\begin{enumerate}
+    \item ``A photo of a \{species\}, a type of butterfly.''
+    \item ``A close-up field photo of a \{species\} butterfly.''
+\end{enumerate}
+
+\subsection{Why Zero-Shot Failed Here}
+Despite ensembling our text prompts, CLIP plateaued at roughly \textbf{30.8\% accuracy} (Top-1). 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{clip_ablation_plot.png}
+    \caption{Zero-Shot performance across different prompting strategies. Notice how accuracy barely breaks 30\%.}
+    \label{fig:clip_ablation}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{clip_umap_joint.png}
+    \caption{UMAP projection of CLIP embeddings. The clusters are highly overlapping, indicating the model cannot clearly separate the 100 species.}
+    \label{fig:clip_umap}
+\end{figure}
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=\linewidth]{effnet_training_curves.png}
+    \caption{The training curves show stable learning. Phase 2 unfreezes the last block, pushing validation accuracy higher without massive overfitting.}
+    \label{fig:training_curves}
+\end{figure*}
+
+Why did it fail? If we look at how CLIP groups images together (using UMAP~\cite{mcinnes2018umap} to visualize the grouping, as seen in Figure \ref{fig:clip_umap}), the clusters are messy and overlapping. CLIP knows what a ``butterfly'' is, but it doesn't have the specialized microscope needed to look at the exact vein patterns on the wings that separate an Adonis from a Blue Morpho.
+
+
+\section{Approach 2: Strategic Fine-Tuning}
+Since out-of-the-box knowledge wasn't enough, we needed a model that could learn our specific dataset. We took \texttt{EfficientNet-B0}~\cite{tan2019efficientnet} (via \texttt{timm}~\cite{rw2019timm}), a very fast and lightweight vision model that already knew basic shapes and edges from ImageNet~\cite{deng2009imagenet}. 
+
+Instead of aggressively training the whole model from scratch (Full Fine-Tuning), which can accidentally destroy the model's foundational knowledge, we did it in two gentle phases:
+
+\textbf{Phase 1: The Warm-up (Linear Probing):} 
+We locked (froze) the entire model so its ``eyes'' wouldn't change. We only trained the final decision-making layer. Surprisingly, this alone jumped the accuracy to $\sim$\textbf{89.8\%}! This proved that standard vision models already have the tools to see butterfly shapes; they just needed to be taught what species name to attach to those shapes.
+
+\textbf{Phase 2: Fine-Tuning the Last Block:} 
+To push past 89\%, we unlocked just the very last block of the model. We let it practice looking at our data for 10 epochs. By altering only 31\% of the model's parameters (1.27 Million params), the accuracy skyrocketed to \textbf{96.6\%} on the test set.
+
+\subsection{Proving Our Fine-Tuned Model Learned Properly}
+How do we know the model isn't just cheating? For example, what if every Monarch butterfly in our dataset was sitting on a green leaf, and the model just learned to look for green leaves instead of the butterfly?
+
+We used \textbf{Grad-CAM}~\cite{selvaraju2017gradcam} to generate heatmaps that visualize exactly where the model is ``looking.'' 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{gradcam_visualisation.png}
+    \caption{Grad-CAM heatmaps showing the EfficientNet model focuses precisely on the patterns of the wings and the thorax, completely ignoring the background leaves and twigs.}
+    \label{fig:gradcam}
+\end{figure}
+
+Figure \ref{fig:gradcam} is an incredible validation of our work. The heatmaps perfectly trace the edges of the wings. Even when the model gets a prediction wrong, it's still looking at the right biological location, which is exactly what we want.
+
+Additionally, our feature grouping looks drastically improved compared to CLIP. In Figure \ref{fig:effnet_umap}, we ran UMAP~\cite{mcinnes2018umap} on our fine-tuned EfficientNet. The difference is night and day: the species are now tightly grouped into neat, isolated clusters.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{effnet_umap_features.png}
+    \caption{UMAP projection of our fine-tuned EfficientNet. The species form tight, distinct islands, proving the model has learned the exact boundaries between them.}
+    \label{fig:effnet_umap}
+\end{figure}
+
+\section{The 1\% Accuracy Gap}
+The dataset provider lists a ``Baseline'' accuracy of 97.60\% using a heavily trained custom Keras model. Our chosen model achieved 96.60\%. We purposely stopped at 96.6\% for a strategic reason: \textbf{Efficiency}. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{effnet_ablation_chart.png}
+    \caption{Our ablation study comparing test accuracy vs trainable parameters.}
+    \label{fig:ablation_bar}
+\end{figure}
+
+As seen in our ablation study (Figure \ref{fig:ablation_bar}), our "Phase 2" model matched the accuracy of a "Full Fine-Tune" but used 3x fewer trainable parameters. This makes our model significantly faster and smaller (only 16 MB), making it perfect for rapid deployment inside our Streamlit web app. 
+
+While we could likely break the 97.6\% ceiling by unfreezing deeper layers and using extreme image distorting (like "RandAugment"), doing so would heavily inflate training times and increase the footprint of the model, which hurts user-experience on a live web app.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{effnet_confusion_matrix.png}
+    \caption{Confusion Matrix highlighting the few mistakes the fine-tuned model makes, almost entirely linked to evolutionary mimicry pairs.}
+    \label{fig:conf_matrix}
+\end{figure}
+
+\section{Conclusion}
+This project heavily validates that for fine-grained, highly nuanced scientific tasks, pulling a massive generalized Zero-Shot model off the shelf is not enough. By taking a lightweight model and strategically fine-tuning just the very end of its architecture, we built a highly interpretative, blazing-fast butterfly classifier that is deeply reliable right down to the wing venation.
+
+\begin{thebibliography}{9}
+\bibitem{radford2021learning}
+A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin, J. Clark, G. Krueger, and I. Sutskever, ``Learning Transferable Visual Models From Natural Language Supervision,'' in \emph{Proc. Int. Conf. Machine Learning (ICML)}, vol. 139, pp. 8748--8763, 2021.
+
+\bibitem{tan2019efficientnet}
+M. Tan and Q. V. Le, ``EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks,'' in \emph{Proc. Int. Conf. Machine Learning (ICML)}, vol. 97, pp. 6105--6114, 2019.
+
+\bibitem{gpiosenka}
+G. Piosenka, ``Butterfly \& Moths Image Classification — 100 Species,'' Kaggle Dataset, 2023. [Online]. Available: \url{https://www.kaggle.com/datasets/gpiosenka/butterfly-images40-species}
+
+\bibitem{selvaraju2017gradcam}
+R. R. Selvaraju, M. Cogswell, A. Das, R. Vedantam, D. Parikh, and D. Batra, ``Grad-CAM: Visual Explanations from Deep Networks via Gradient-Based Localization,'' in \emph{Proc. IEEE Int. Conf. Computer Vision (ICCV)}, pp. 618--626, 2017.
+
+\bibitem{mcinnes2018umap}
+L. McInnes, J. Healy, and J. Melville, ``UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction,'' \emph{arXiv preprint arXiv:1802.03426}, 2018.
+
+\bibitem{deng2009imagenet}
+J. Deng, W. Dong, R. Socher, L.-J. Li, K. Li, and L. Fei-Fei, ``ImageNet: A Large-Scale Hierarchical Image Database,'' in \emph{Proc. IEEE Conf. Computer Vision and Pattern Recognition (CVPR)}, pp. 248--255, 2009.
+
+\bibitem{rw2019timm}
+R. Wightman, ``PyTorch Image Models (timm),'' GitHub, 2019. [Online]. Available: \url{https://github.com/huggingface/pytorch-image-models}
+\end{thebibliography}
+
+\appendix
+\section{Project Links and Resources}
+The complete system, including raw Jupyter Notebooks, the ablation pipeline, and the Streamlit deployment structure, is openly accessible.
+
+\begin{itemize}
+    \item \textbf{GitHub Repository:} \url{https://github.com/Anurag-Kacholiya/Butterfly-Species-Detection}
+
+    \item \textbf{Hugging Face CLIP Model (Zero-Shot baseline):} \url{https://huggingface.co/openai/clip-vit-base-patch32}
+
+    \item \textbf{EfficientNet-B0 via timm:} \url{https://github.com/huggingface/pytorch-image-models}
+\end{itemize}
+
+\textbf{Information Retrieval Note:} To ensure the Streamlit application performs inferencing rapidly, Wikipedia summaries, specific IUCN Conservation status mappings, and fun biological facts are strictly pre-cached inside the repository's \texttt{cached\_species\_info.json} rather than generating HTTP traffic at runtime.
+
+\end{document}
