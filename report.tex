@@ -12,12 +12,34 @@
 
 \title{Butterfly Species Identification:\\ Why Strategic Fine-Tuning Beats Zero-Shot Models}
 
-\author{Anurag Kacholiya \\ SMAI Assignment 3}
+\author{
+\begin{tabular}{ccc}
+Anurag Kacholiya & Anurag Kaushal & Srushti Pekamwar \\
+2025202025 & 2025202013 & 2025201066
+\end{tabular}
+}
+
 
 \maketitle
 
 \begin{abstract}
-Identifying butterfly species from photographs is a prototypical Fine-Grained Visual Categorisation (FGVC) challenge: many species are visually near-identical due to biological mimicry, while intra-species variation (sex, wear, pose) adds further difficulty. In this project, we build a full-stack Streamlit web application that classifies 100 butterfly species and exposes IUCN conservation status, Wikipedia summaries, and Grad-CAM heatmaps at inference time. We conduct a systematic ablation comparing three training strategies: (A)~Linear Probe, (B)~Last-Block Fine-Tuning, and (C)~Full Fine-Tuning of EfficientNet-B0~\cite{tan2019efficientnet}, as well as a zero-shot CLIP baseline~\cite{radford2021learning}. The zero-shot CLIP approach achieves only 30.8\% Top-1 accuracy. Linear probing (Strategy A) reaches 92.20\% by training just 1,300 parameters. Unlocking a single convolutional block (Strategy B) with 2.9~M trainable parameters achieves \textbf{97.0\%} Top-1, 99.2\% Top-3, and 96.92\% Macro-F1 — matching the fully fine-tuned model (Strategy C: 5.3~M params, 97.0\% Top-1) at one-half the parameter cost. Grad-CAM analysis confirms the model attends to wing venation patterns rather than background habitat, and a UMAP embedding shows tight, well-separated per-species clusters in the learned feature space.
+Identifying butterfly species from photographs is a classic \textit{Fine-Grained Visual Categorization (FGVC)} problem, where many species exhibit highly similar visual characteristics due to biological mimicry. The task is further complicated by significant intra-species variations such as differences in sex, wing wear, lighting conditions, and pose.
+
+In this project, we develop a full-stack Streamlit-based web application capable of classifying 100 butterfly species while simultaneously providing additional interpretability and ecological information, including IUCN conservation status, Wikipedia summaries, and Grad-CAM visual explanations during inference.
+
+To evaluate model performance systematically, we conduct an extensive ablation study using three transfer-learning strategies on EfficientNet-B0~\cite{tan2019efficientnet}:
+\begin{itemize}
+    \item[(A)] Linear Probing
+    \item[(B)] Last-Block Fine-Tuning
+    \item[(C)] Full Fine-Tuning
+\end{itemize}
+
+We also compare these approaches against a zero-shot CLIP baseline~\cite{radford2021learning}.
+
+Experimental results show that the zero-shot CLIP model achieves only 30.8\% Top-1 accuracy, highlighting the difficulty of the FGVC task. Strategy A (Linear Probing) attains 92.20\% Top-1 accuracy while training only 1,300 parameters. Strategy B (Last-Block Fine-Tuning), using 2.9 million trainable parameters, achieves the best trade-off between efficiency and performance with \textbf{97.0\%} Top-1 accuracy, 99.2\% Top-3 accuracy, and 96.92\% Macro-F1 score. Notably, this matches the performance of the fully fine-tuned model (Strategy C: 5.3 million parameters, 97.0\% Top-1 accuracy) while requiring nearly half the trainable parameters.
+
+Furthermore, Grad-CAM visualizations demonstrate that the model primarily focuses on biologically meaningful wing venation and pattern structures rather than background habitat information. A UMAP-based feature space analysis also reveals compact and well-separated clusters for individual butterfly species, indicating strong discriminative representation learning.
+
 \end{abstract}
 
 \section{The Fine-Grained Classification Challenge}
@@ -156,10 +178,6 @@ CLIP Zero-Shot & 0 & 30.80\% & 44.20\% & 24.57\% \\
 
 \section{Interpretability Analysis}
 
-\subsection{Grad-CAM Heatmaps}
-
-Grad-CAM~\cite{selvaraju2017gradcam} back-propagates the gradient of the predicted class score through the last convolutional layer (\texttt{blocks[-1]}) to produce a spatial activation map highlighting the regions most influential to the prediction.
-
 \begin{figure}[H]
     \centering
     \includegraphics[width=\linewidth]{gradcam_visualisation.png}
@@ -167,19 +185,15 @@ Grad-CAM~\cite{selvaraju2017gradcam} back-propagates the gradient of the predict
     \label{fig:gradcam}
 \end{figure}
 
+\subsection{Grad-CAM Heatmaps}
+
+Grad-CAM~\cite{selvaraju2017gradcam} back-propagates the gradient of the predicted class score through the last convolutional layer (\texttt{blocks[-1]}) to produce a spatial activation map highlighting the regions most influential to the prediction.
+
 Figure~\ref{fig:gradcam} shows four correct and four incorrect predictions. In all cases, activation focuses on \textbf{wing patterns, submarginal bands, ocelli, and the thorax} — the exact biological features used by human taxonomists. The background (leaves, stems, soil) receives near-zero activation, confirming the model has not learned habitat spurious correlations.
 
 Even in failure cases, the model looks at the right anatomical region. Errors are biologically plausible (mimicry pairs), not random. This ``fail gracefully'' property is critical for a field-identification tool.
 
 \subsection{Layer-wise Grad-CAM}
-
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=\linewidth]{gradcam_layerwise.png}
-    \caption{Layer-wise Grad-CAM at blocks[1] (early), blocks[4] (middle), and blocks[6] (late/fine-tuned) for the same input images. Heatmaps progress from broad whole-image activations to tight, species-specific wing-feature highlights.}
-    \label{fig:gradcam_layerwise}
-\end{figure}
 
 To demonstrate how attention evolves across network depth, we extract Grad-CAM heatmaps at three representative blocks and visualise them for the same input images (Figure~\ref{fig:gradcam_layerwise}):
 
@@ -202,6 +216,13 @@ To demonstrate how attention evolves across network depth, we extract Grad-CAM h
 
 \textbf{blocks[4] (Middle):} Attention begins to narrow towards the butterfly body and wings. Background suppression becomes apparent. The model is now detecting mid-level features: the overall wing outline, broad colour regions, and approximate body shape. The spatial attention is more selective than in the early block but is not yet focused on the fine-grained cues that distinguish species.
 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{gradcam_layerwise.png}
+    \caption{Layer-wise Grad-CAM at blocks[1] (early), blocks[4] (middle), and blocks[6] (late/fine-tuned) for the same input images. Heatmaps progress from broad whole-image activations to tight, species-specific wing-feature highlights.}
+    \label{fig:gradcam_layerwise}
+\end{figure}
+
 \textbf{blocks[6] (Late --- fine-tuned):} Activation is tightly concentrated on fine-grained discriminative features --- specific wing bands, colour patches, eyespots, and margin patterns. This is precisely the block we unlocked during Phase 2 fine-tuning; its representations have been adapted from ImageNet semantics to butterfly-specific diagnostic anatomy.
 
 \textbf{Why this matters:} The layer-wise progression provides strong empirical evidence that fine-tuning only \texttt{blocks[6]} is sufficient. Blocks 0--5 already encode a rich feature pyramid that transfers well to the butterfly domain. By unlocking only the final block, we ``sharpen the lens'' for species-level discrimination without destabilising the foundational visual vocabulary learned from ImageNet. This is why Strategy B (2.9~M trainable params) matches Strategy C (5.3~M trainable params) in final test accuracy.
@@ -222,13 +243,6 @@ The UMAP shows \textbf{compact, non-overlapping islands per species}. Biological
 
 \section{Confusion Analysis}
 
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=\linewidth]{effnet_confusion_matrix.png}
-    \caption{Confusion matrix restricted to the 20 most error-prone species. Confusions cluster around known mimicry pairs (e.g., Monarch/Viceroy, Adonis/Chalk Hill Blue), not across unrelated taxa.}
-    \label{fig:conf_matrix}
-\end{figure}
-
 The final test metrics for Strategy B are:
 \begin{itemize}
     \item \textbf{Top-1 Accuracy:} 97.0\%
@@ -237,6 +251,13 @@ The final test metrics for Strategy B are:
     \item \textbf{Macro Recall:} 97.0\%
     \item \textbf{Macro F1-score:} 96.92\%
 \end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{effnet_confusion_matrix.png}
+    \caption{Confusion matrix restricted to the 20 most error-prone species. Confusions cluster around known mimicry pairs (e.g., Monarch/Viceroy, Adonis/Chalk Hill Blue), not across unrelated taxa.}
+    \label{fig:conf_matrix}
+\end{figure}
 
 The confusion matrix (Figure~\ref{fig:conf_matrix}) restricts to the 20 highest-error species. All confusions occur between species with documented mimicry relationships or extreme morphological similarity. There are no cross-family errors (e.g., a Swallowtail mistaken for a Lycaenid), confirming that residual errors are irreducible without higher-resolution imaging.
 
