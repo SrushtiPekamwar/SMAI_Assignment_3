@@ -1,1 +1,29 @@
-archive
+# ── Raw dataset (large; download from Kaggle) ────────────────────────────────
+archive/
+
+# ── Model weights (use Git LFS if you need to track these) ───────────────────
+# model/*.pth
+
+# ── Python / Jupyter ─────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.ipynb_checkpoints/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+.env
+
+# ── OS cruft ─────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp

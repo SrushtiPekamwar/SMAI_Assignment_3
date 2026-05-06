@@ -1,11 +1,11 @@
 {
   "model": "efficientnet_b0 (timm)",
   "method": "Linear Probe \u2192 Fine-Tune Last Block",
-  "test_top1_acc": 96.6,
-  "test_top3_acc": 99.4,
-  "macro_f1": 96.45,
-  "macro_precision": 97.03,
-  "macro_recall": 96.6,
+  "test_top1_acc": 97.0,
+  "test_top3_acc": 99.2,
+  "macro_f1": 96.92,
+  "macro_precision": 97.36,
+  "macro_recall": 97.0,
   "ablation": [
     {
       "Method": "Baseline \u2014 Author H5 (Keras)",
@@ -20,7 +20,7 @@
       "Method": "A \u2014 Linear Probe",
       "Trainable": "~1.3K",
       "Epochs": 5,
-      "Val Acc (Best)": "89.80%",
+      "Val Acc (Best)": "92.20%",
       "Test Top-1": "See Phase 1",
       "Test Top-3": "\u2014",
       "Macro F1": "\u2014"
@@ -29,19 +29,19 @@
       "Method": "B \u2014 Fine-Tune Last Block",
       "Trainable": "~2.9M",
       "Epochs": "5+10",
-      "Val Acc (Best)": "96.00%",
-      "Test Top-1": "96.60%",
-      "Test Top-3": "99.40%",
-      "Macro F1": "96.45%"
+      "Val Acc (Best)": "96.20%",
+      "Test Top-1": "97.00%",
+      "Test Top-3": "99.20%",
+      "Macro F1": "96.92%"
     },
     {
       "Method": "C \u2014 Full Fine-Tune",
       "Trainable": "5.3M",
       "Epochs": 10,
       "Val Acc (Best)": "\u2014",
-      "Test Top-1": "96.60%",
+      "Test Top-1": "97.00%",
       "Test Top-3": "99.20%",
-      "Macro F1": "96.53%"
+      "Macro F1": "96.87%"
     }
   ]
 }
