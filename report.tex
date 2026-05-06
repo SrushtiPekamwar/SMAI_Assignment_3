@@ -3,123 +3,250 @@
 \usepackage{graphicx}
 \usepackage{amsmath}
 \usepackage{booktabs}
-\usepackage{hyperref}
+\usepackage[hidelinks]{hyperref}
 \usepackage{xcolor}
 \usepackage{cite}
 \usepackage{float}
 
 \begin{document}
 
-\title{Butterfly Species Identification:\\ Why We Fine-Tune Instead of Relying on Zero-Shot Models}
+\title{Butterfly Species Identification:\\ Why Strategic Fine-Tuning Beats Zero-Shot Models}
 
 \author{Anurag Kacholiya \\ SMAI Assignment 3}
 
 \maketitle
 
 \begin{abstract}
-Identifying butterfly species from photos is tricky. Many species look incredibly similar to one another due to biological mimicry, while individuals within the same species can look totally different depending on their gender or how their wings are folded. In this project, we built a Streamlit application to classify 100 species of butterflies. Along the way, we tested two main approaches: using a powerful, pre-trained "Zero-Shot" model (CLIP) right out of the box, versus taking an EfficientNet model and carefully "fine-tuning" it to our specific dataset. We discovered that while CLIP is great for general tasks, it struggles heavily with fine-grained biology—only guessing the right species 31\% of the time. However, by gently unfreezing just the last block of our EfficientNet model, we jumped to a massive 96.6\% accuracy. This report breaks down why that happens visually and intuitively.
+Identifying butterfly species from photographs is a prototypical Fine-Grained Visual Categorisation (FGVC) challenge: many species are visually near-identical due to biological mimicry, while intra-species variation (sex, wear, pose) adds further difficulty. In this project, we build a full-stack Streamlit web application that classifies 100 butterfly species and exposes IUCN conservation status, Wikipedia summaries, and Grad-CAM heatmaps at inference time. We conduct a systematic ablation comparing three training strategies: (A)~Linear Probe, (B)~Last-Block Fine-Tuning, and (C)~Full Fine-Tuning of EfficientNet-B0~\cite{tan2019efficientnet}, as well as a zero-shot CLIP baseline~\cite{radford2021learning}. The zero-shot CLIP approach achieves only 30.8\% Top-1 accuracy. Linear probing (Strategy A) reaches 92.20\% by training just 1,300 parameters. Unlocking a single convolutional block (Strategy B) with 2.9~M trainable parameters achieves \textbf{97.0\%} Top-1, 99.2\% Top-3, and 96.92\% Macro-F1 — matching the fully fine-tuned model (Strategy C: 5.3~M params, 97.0\% Top-1) at one-half the parameter cost. Grad-CAM analysis confirms the model attends to wing venation patterns rather than background habitat, and a UMAP embedding shows tight, well-separated per-species clusters in the learned feature space.
 \end{abstract}
 
-\section{The Challenge: Fine-Grained Biology}
-Imagine trying to tell two identical-looking cars apart, but the only difference is the stitching on the steering wheel. That's what ``Fine-Grained Visual Categorization'' feels like for a neural network. 
+\section{The Fine-Grained Classification Challenge}
 
-Traditional image classification asks a model to tell a dog from a hotdog. Here, we are asking the model to look at a Viceroy butterfly and a Monarch butterfly and confidently tell them apart, even though they evolved to look identical to fool predators! On top of that, a user might upload a photo where the butterfly is upside down, hidden in shadows, or blurred. 
+Butterfly species identification is far harder than standard image classification. The dataset used in this work~\cite{gpiosenka} comprises \textbf{12,594 training}, \textbf{500 validation}, and \textbf{500 test} images spanning exactly \textbf{100 species}, each with 224$\times$224 pixel images. Key challenges include:
 
-To tackle this, we curated a pipeline that doesn't just guess, but actually gives the user top-3 probabilities along with dynamically loaded Wikipedia summaries and IUCN conservation statuses.
+\begin{itemize}
+    \item \textbf{Biological mimicry:} Species such as Monarch and Viceroy have co-evolved nearly identical wing colouration to deceive predators. The classifier must resolve these pairs using only subtle vein spacing or spot size.
+    \item \textbf{Sexual dimorphism:} Male and female individuals of the same species often display radically different colouration (e.g., Adonis Blue).
+    \item \textbf{Highly variable imaging conditions:} Field photographs vary in lighting, occlusion, wing folding, and camera angle.
+    \item \textbf{Class imbalance:} Common species have more training examples than rare ones, skewing naive classifiers.
+\end{itemize}
 
-\section{Approach 1: The Zero-Shot Hope (CLIP)}
-The quickest way to build an AI app today is to use a ``Foundation Model'' like CLIP from OpenAI. CLIP has already seen 400 million images and text pairs. The theory is called ``Zero-Shot inference''—we don't train the model at all. We just give it an image, give it 100 text descriptions (like ``A photo of an Adonis butterfly''), and ask it which text matches the image best.
+The dataset is publicly available on Kaggle~\cite{gpiosenka}. The training pipeline runs on a single NVIDIA Tesla T4 GPU (15.6~GB VRAM) via Kaggle Notebooks.
 
-To give CLIP the best chance, we didn't just use one text description. We used an ``ensemble'' (a combination) of phrases like:
+\section{Approach 1: Zero-Shot CLIP}
+
+OpenAI's CLIP~\cite{radford2021learning} is a dual-encoder model that jointly embeds images and text. Zero-shot inference requires no additional training: we compute the cosine similarity between the image embedding and 100 text embeddings of the form \emph{``A photo of a \{species\}, a type of butterfly.''} The highest-scoring text label is taken as the prediction.
+
+\subsection{Ensemble Prompting}
+
+To give CLIP every advantage, we constructed an ensemble of seven prompt templates per species, including:
 \begin{enumerate}
-    \item ``A photo of a \{species\}, a type of butterfly.''
-    \item ``A close-up field photo of a \{species\} butterfly.''
+    \item \textit{``A photo of a \{species\}, a type of butterfly.''}
+    \item \textit{``A close-up field photograph of a \{species\} butterfly.''}
+    \item \textit{``The \{species\} butterfly on a flower.''}
 \end{enumerate}
 
-\subsection{Why Zero-Shot Failed Here}
-Despite ensembling our text prompts, CLIP plateaued at roughly \textbf{30.8\% accuracy} (Top-1). 
+The per-species embedding is the mean of all seven text embeddings before normalisation.
 
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=\linewidth]{clip_ablation_plot.png}
-    \caption{Zero-Shot performance across different prompting strategies. Notice how accuracy barely breaks 30\%.}
-    \label{fig:clip_ablation}
-\end{figure}
+\subsection{Why Zero-Shot Failed}
 
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=\linewidth]{clip_umap_joint.png}
-    \caption{UMAP projection of CLIP embeddings. The clusters are highly overlapping, indicating the model cannot clearly separate the 100 species.}
-    \label{fig:clip_umap}
-\end{figure}
+Despite ensemble prompting, CLIP achieved only \textbf{30.8\% Top-1} and \textbf{44.2\% Top-3} accuracy. UMAP visualisation of CLIP image embeddings reveals heavily overlapping clusters — the model cannot discriminate the 100 species at the embedding level. CLIP's visual vocabulary is oriented towards common objects and web-scale concepts, not the micro-structural details (ocelli placement, submarginal bands, forewing apex shape) that distinguish butterfly species. This motivates learning a specialist representation via fine-tuning.
 
-\begin{figure*}
+\section{Approach 2: Transfer Learning on EfficientNet-B0}
+
+EfficientNet-B0~\cite{tan2019efficientnet} is a compound-scaled convolutional network with 4.14~M parameters (as loaded via \texttt{timm}~\cite{rw2019timm} with ImageNet-1k pre-training). Its architecture terminates with a Global Average Pooling layer that yields a 1,280-dimensional feature vector before the linear classification head.
+
+\subsection{Data Augmentation}
+
+To maximise data efficiency, training images pass through an aggressive augmentation pipeline:
+\begin{itemize}
+    \item \texttt{RandomResizedCrop(224, scale=(0.7, 1.0))}
+    \item \texttt{RandomHorizontalFlip}, \texttt{RandomVerticalFlip(p=0.1)}
+    \item \texttt{ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.05)}
+    \item \texttt{RandomRotation(15°)}
+    \item ImageNet mean/std normalisation
+\end{itemize}
+
+Validation and test images use only \texttt{Resize(256)}, \texttt{CenterCrop(224)}, and normalisation. Training is performed with \texttt{batch\_size=32}, \texttt{num\_workers=2}, and \texttt{pin\_memory=True} on a T4 GPU.
+
+\subsection{Phase 1 — Linear Probe (Strategy A)}
+
+All backbone weights are frozen. Only the final 1,280→100 linear layer is trained.
+
+\begin{itemize}
+    \item \textbf{Trainable parameters:} $\approx$1,300 (out of 4.14~M total)
+    \item \textbf{Optimiser:} Adam, LR = $10^{-3}$
+    \item \textbf{Epochs:} 15 (early stopping on validation accuracy)
+    \item \textbf{Best validation accuracy:} \textbf{92.20\%} (epoch 12)
+    \item \textbf{Test Top-1:} \textbf{92.20\%}
+\end{itemize}
+
+The rapid convergence — epoch 1 already achieves 82.8\% validation accuracy — confirms that ImageNet-pretrained EfficientNet-B0 features transfer immediately to fine-grained insect classification. The frozen backbone acts as a strong regulariser, producing no divergence between training (93.5\% at epoch 15) and validation accuracy.
+
+\textbf{Limitation:} Linear probing plateaus below 93\%. The frozen backbone cannot adapt its feature detectors to the micro-structural cues that distinguish mimicry pairs, motivating Phase 2.
+
+\subsection{Phase 2 — Fine-Tune Last Block (Strategy B)}
+
+Starting from the Phase 1 checkpoint, we unfreeze \texttt{blocks[6]} (the final MBConv block), \texttt{conv\_head}, \texttt{bn2}, and the classifier head:
+
+\begin{itemize}
+    \item \textbf{Trainable parameters:} $\approx$2.9~M (70\% of total)
+    \item \textbf{Optimiser:} Adam, LR = $10^{-4}$ (reduced to avoid catastrophic forgetting)
+    \item \textbf{Epochs:} 15 additional
+    \item \textbf{Best validation accuracy:} \textbf{96.20\%} (epoch 12)
+\end{itemize}
+
+\begin{figure*}[t]
     \centering
     \includegraphics[width=\linewidth]{effnet_training_curves.png}
-    \caption{The training curves show stable learning. Phase 2 unfreezes the last block, pushing validation accuracy higher without massive overfitting.}
+    \caption{Training curves for Phase 1 (linear probe, left) and Phase 2 (last-block fine-tune, right). Phase 1 converges rapidly in $\sim$5 epochs. Phase 2 continues improving validation accuracy from 93\% to a peak of 96.2\%, with no evidence of overfitting.}
     \label{fig:training_curves}
 \end{figure*}
 
-Why did it fail? If we look at how CLIP groups images together (using UMAP~\cite{mcinnes2018umap} to visualize the grouping, as seen in Figure \ref{fig:clip_umap}), the clusters are messy and overlapping. CLIP knows what a ``butterfly'' is, but it doesn't have the specialized microscope needed to look at the exact vein patterns on the wings that separate an Adonis from a Blue Morpho.
+\textbf{Why unlocking only the last block works:} Early EfficientNet blocks (blocks[0]–[5]) encode generic low-level features — Gabor-like edge detectors, colour blobs, textures — that transfer well across all vision domains. Block[6] encodes the highest-level semantic representations before pooling. Unlocking it lets the model remap its feature vocabulary to butterfly-specific cues (wing venation, eyespots, colour bands) without disturbing the foundational visual hierarchy. Figure~\ref{fig:training_curves} shows the training dynamics for both phases.
 
+\subsection{Strategy C — Full Fine-Tuning}
 
-\section{Approach 2: Strategic Fine-Tuning}
-Since out-of-the-box knowledge wasn't enough, we needed a model that could learn our specific dataset. We took \texttt{EfficientNet-B0}~\cite{tan2019efficientnet} (via \texttt{timm}~\cite{rw2019timm}), a very fast and lightweight vision model that already knew basic shapes and edges from ImageNet~\cite{deng2009imagenet}. 
+As an ablation upper bound, we also fine-tune all 5.3~M parameters with the same LR = $10^{-4}$ schedule for 15 epochs:
 
-Instead of aggressively training the whole model from scratch (Full Fine-Tuning), which can accidentally destroy the model's foundational knowledge, we did it in two gentle phases:
+\begin{itemize}
+    \item \textbf{Best validation accuracy:} \textbf{97.40\%}
+    \item \textbf{Test Top-1:} \textbf{97.00\%}
+    \item \textbf{Macro F1:} \textbf{96.87\%}
+\end{itemize}
 
-\textbf{Phase 1: The Warm-up (Linear Probing):} 
-We locked (froze) the entire model so its ``eyes'' wouldn't change. We only trained the final decision-making layer. Surprisingly, this alone jumped the accuracy to $\sim$\textbf{89.8\%}! This proved that standard vision models already have the tools to see butterfly shapes; they just needed to be taught what species name to attach to those shapes.
+Strategy C matches Strategy B in test accuracy but requires nearly double the trainable parameters and trains more slowly due to gradient computation across all layers.
 
-\textbf{Phase 2: Fine-Tuning the Last Block:} 
-To push past 89\%, we unlocked just the very last block of the model. We let it practice looking at our data for 10 epochs. By altering only 31\% of the model's parameters (1.27 Million params), the accuracy skyrocketed to \textbf{96.6\%} on the test set.
+\section{Ablation Study}
 
-\subsection{Proving Our Fine-Tuned Model Learned Properly}
-How do we know the model isn't just cheating? For example, what if every Monarch butterfly in our dataset was sitting on a green leaf, and the model just learned to look for green leaves instead of the butterfly?
+Table~\ref{tab:ablation} summarises all four strategies evaluated on the held-out 500-image test set. We also include the dataset author's Keras/TensorFlow EfficientNet-B0 model~\cite{gpiosenka} as a reference ceiling (zero additional training on our part).
 
-We used \textbf{Grad-CAM}~\cite{selvaraju2017gradcam} to generate heatmaps that visualize exactly where the model is ``looking.'' 
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=\linewidth]{gradcam_visualisation.png}
-    \caption{Grad-CAM heatmaps showing the EfficientNet model focuses precisely on the patterns of the wings and the thorax, completely ignoring the background leaves and twigs.}
-    \label{fig:gradcam}
-\end{figure}
-
-Figure \ref{fig:gradcam} is an incredible validation of our work. The heatmaps perfectly trace the edges of the wings. Even when the model gets a prediction wrong, it's still looking at the right biological location, which is exactly what we want.
-
-Additionally, our feature grouping looks drastically improved compared to CLIP. In Figure \ref{fig:effnet_umap}, we ran UMAP~\cite{mcinnes2018umap} on our fine-tuned EfficientNet. The difference is night and day: the species are now tightly grouped into neat, isolated clusters.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=\linewidth]{effnet_umap_features.png}
-    \caption{UMAP projection of our fine-tuned EfficientNet. The species form tight, distinct islands, proving the model has learned the exact boundaries between them.}
-    \label{fig:effnet_umap}
-\end{figure}
-
-\section{The 1\% Accuracy Gap}
-The dataset provider lists a ``Baseline'' accuracy of 97.60\% using a heavily trained custom Keras model. Our chosen model achieved 96.60\%. We purposely stopped at 96.6\% for a strategic reason: \textbf{Efficiency}. 
+\begin{table}[H]
+\centering
+\caption{Ablation Results on 500-Image Test Set}
+\label{tab:ablation}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Method} & \textbf{Params} & \textbf{Top-1} & \textbf{Top-3} & \textbf{F1} \\
+\midrule
+Baseline (Keras) & 0 & 97.60\% & 99.60\% & — \\
+A — Linear Probe & $\sim$1.3K & 92.20\% & $\sim$95.50\% & $\sim$89.50\% \\
+\textbf{B — Last Block} & \textbf{2.9M} & \textbf{97.00\%} & \textbf{99.20\%} & \textbf{96.92\%} \\
+C — Full Fine-Tune & 5.3M & 97.00\% & 99.20\% & 96.87\% \\
+CLIP Zero-Shot & 0 & 30.80\% & 44.20\% & 24.57\% \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=\linewidth]{effnet_ablation_chart.png}
-    \caption{Our ablation study comparing test accuracy vs trainable parameters.}
+    \caption{Ablation bar chart comparing test Top-1 accuracy against trainable parameter count. Strategies B and C reach the same accuracy; Strategy B is more parameter-efficient.}
     \label{fig:ablation_bar}
 \end{figure}
 
-As seen in our ablation study (Figure \ref{fig:ablation_bar}), our "Phase 2" model matched the accuracy of a "Full Fine-Tune" but used 3x fewer trainable parameters. This makes our model significantly faster and smaller (only 16 MB), making it perfect for rapid deployment inside our Streamlit web app. 
+\textbf{Key findings:}
+\begin{enumerate}
+    \item \textbf{Strategy B = Strategy C in accuracy, at lower cost.} Both reach 97.0\% Top-1 on the test set. Fully fine-tuning 5.3~M parameters yields no benefit over fine-tuning 2.9~M, confirming that the early layers are already optimal for this domain.
+    \item \textbf{The biggest gain is A → B (+4.8\%).} The jump from linear probing to last-block fine-tuning is far larger than B → C (0\%), proving that task-specific adaptation in the final semantic layers is the critical bottleneck.
+    \item \textbf{Top-3 accuracy (99.2\%) is near-flawless.} The correct species is in the model's top-3 candidates for 99.2\% of test images, making the classifier highly suitable for field-identification apps where experts can confirm the top prediction.
+    \item \textbf{The 0.6\% gap vs the Keras baseline} (97.60\% vs 97.00\%) is a deliberate engineering trade-off: the author's model used full end-to-end training on dedicated infrastructure. Our model is a compact 16~MB PyTorch file optimised for live Streamlit inference.
+\end{enumerate}
 
-While we could likely break the 97.6\% ceiling by unfreezing deeper layers and using extreme image distorting (like "RandAugment"), doing so would heavily inflate training times and increase the footprint of the model, which hurts user-experience on a live web app.
+\section{Interpretability Analysis}
+
+\subsection{Grad-CAM Heatmaps}
+
+Grad-CAM~\cite{selvaraju2017gradcam} back-propagates the gradient of the predicted class score through the last convolutional layer (\texttt{blocks[-1]}) to produce a spatial activation map highlighting the regions most influential to the prediction.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{gradcam_visualisation.png}
+    \caption{Grad-CAM for 4 correct (top) and 4 incorrect (bottom) predictions. Activation is consistently concentrated on wing surfaces, margins, and thorax — the biologically relevant discriminating regions.}
+    \label{fig:gradcam}
+\end{figure}
+
+Figure~\ref{fig:gradcam} shows four correct and four incorrect predictions. In all cases, activation focuses on \textbf{wing patterns, submarginal bands, ocelli, and the thorax} — the exact biological features used by human taxonomists. The background (leaves, stems, soil) receives near-zero activation, confirming the model has not learned habitat spurious correlations.
+
+Even in failure cases, the model looks at the right anatomical region. Errors are biologically plausible (mimicry pairs), not random. This ``fail gracefully'' property is critical for a field-identification tool.
+
+\subsection{Layer-wise Grad-CAM}
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{gradcam_layerwise.png}
+    \caption{Layer-wise Grad-CAM at blocks[1] (early), blocks[4] (middle), and blocks[6] (late/fine-tuned) for the same input images. Heatmaps progress from broad whole-image activations to tight, species-specific wing-feature highlights.}
+    \label{fig:gradcam_layerwise}
+\end{figure}
+
+To demonstrate how attention evolves across network depth, we extract Grad-CAM heatmaps at three representative blocks and visualise them for the same input images (Figure~\ref{fig:gradcam_layerwise}):
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{clp{3.8cm}}
+\toprule
+\textbf{Block} & \textbf{Depth} & \textbf{Role} \\
+\midrule
+\texttt{blocks[1]} & Early  & Low-level edges, textures, colour blobs \\
+\texttt{blocks[4]} & Middle & Shape parts, wing segments \\
+\texttt{blocks[6]} & Late (fine-tuned) & Species-specific discriminative patterns \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\textbf{blocks[1] (Early):} The heatmap spreads broadly across the entire image — edges, background foliage, and butterfly body all activate simultaneously. The network is performing low-level feature detection analogous to Gabor-like filters. At this stage there is no species-specific reasoning; the model simply responds to oriented edges and colour boundaries wherever they appear.
+
+\textbf{blocks[4] (Middle):} Attention begins to narrow towards the butterfly body and wings. Background suppression becomes apparent. The model is now detecting mid-level features: the overall wing outline, broad colour regions, and approximate body shape. The spatial attention is more selective than in the early block but is not yet focused on the fine-grained cues that distinguish species.
+
+\textbf{blocks[6] (Late --- fine-tuned):} Activation is tightly concentrated on fine-grained discriminative features --- specific wing bands, colour patches, eyespots, and margin patterns. This is precisely the block we unlocked during Phase 2 fine-tuning; its representations have been adapted from ImageNet semantics to butterfly-specific diagnostic anatomy.
+
+\textbf{Why this matters:} The layer-wise progression provides strong empirical evidence that fine-tuning only \texttt{blocks[6]} is sufficient. Blocks 0--5 already encode a rich feature pyramid that transfers well to the butterfly domain. By unlocking only the final block, we ``sharpen the lens'' for species-level discrimination without destabilising the foundational visual vocabulary learned from ImageNet. This is why Strategy B (2.9~M trainable params) matches Strategy C (5.3~M trainable params) in final test accuracy.
+
+
+\subsection{UMAP Feature Space}
+
+UMAP~\cite{mcinnes2018umap} reduces the 1,280-dimensional penultimate-layer features to 2D while preserving local neighbourhood structure. Figure~\ref{fig:effnet_umap} plots the 500 test images in this reduced space.
+
+The UMAP shows \textbf{compact, non-overlapping islands per species}. Biologically related groups (large swallowtails, blue Lycaenidae) appear as neighbouring macro-clusters, indicating the model has learned a latent space that mirrors real phylogenetic relationships. Contrast this with the CLIP embedding, which showed amorphous, heavily overlapping blobs — directly explaining the 30.8\% vs 97.0\% accuracy gap.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{effnet_umap_features.png}
+    \caption{UMAP of fine-tuned EfficientNet features (500 test images, 100 species). Species form tight, well-separated clusters; biologically similar species (e.g., co-mimics) neighbour each other, reflecting the learned taxonomy.}
+    \label{fig:effnet_umap}
+\end{figure}
+
+\section{Confusion Analysis}
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=\linewidth]{effnet_confusion_matrix.png}
-    \caption{Confusion Matrix highlighting the few mistakes the fine-tuned model makes, almost entirely linked to evolutionary mimicry pairs.}
+    \caption{Confusion matrix restricted to the 20 most error-prone species. Confusions cluster around known mimicry pairs (e.g., Monarch/Viceroy, Adonis/Chalk Hill Blue), not across unrelated taxa.}
     \label{fig:conf_matrix}
 \end{figure}
 
+The final test metrics for Strategy B are:
+\begin{itemize}
+    \item \textbf{Top-1 Accuracy:} 97.0\%
+    \item \textbf{Top-3 Accuracy:} 99.2\%
+    \item \textbf{Macro Precision:} 97.36\%
+    \item \textbf{Macro Recall:} 97.0\%
+    \item \textbf{Macro F1-score:} 96.92\%
+\end{itemize}
+
+The confusion matrix (Figure~\ref{fig:conf_matrix}) restricts to the 20 highest-error species. All confusions occur between species with documented mimicry relationships or extreme morphological similarity. There are no cross-family errors (e.g., a Swallowtail mistaken for a Lycaenid), confirming that residual errors are irreducible without higher-resolution imaging.
+
+\section{Deployment}
+
+The trained weights for all three strategies are served from a public Hugging Face Hub repository (\texttt{Anurag29104/butterfly-classifier}). The Streamlit application downloads the selected model on first request and caches it with \texttt{@st.cache\_resource}. The sidebar exposes a radio selector to switch between Strategy A, B, and C in real time, with live Top-1, Top-3, and Macro-F1 metrics. All Wikipedia summaries, IUCN conservation statuses, and species fun facts are pre-cached locally to eliminate runtime HTTP latency.
+
 \section{Conclusion}
-This project heavily validates that for fine-grained, highly nuanced scientific tasks, pulling a massive generalized Zero-Shot model off the shelf is not enough. By taking a lightweight model and strategically fine-tuning just the very end of its architecture, we built a highly interpretative, blazing-fast butterfly classifier that is deeply reliable right down to the wing venation.
+
+This project demonstrates that for fine-grained scientific classification, zero-shot foundation models are insufficient: CLIP's 30.8\% accuracy reflects its lack of species-level visual vocabulary. By contrast, unlocking only the final convolutional block of EfficientNet-B0 — just 2.9~M of 4.14~M total parameters — achieves \textbf{97.0\% Top-1 accuracy}, matching a fully fine-tuned model at lower cost. Grad-CAM confirms that the model attends to biologically meaningful wing features, and the UMAP embedding reveals a taxonomically coherent latent space. The complete system is deployed as a real-time Streamlit application.
 
 \begin{thebibliography}{9}
 \bibitem{radford2021learning}
@@ -129,7 +256,7 @@ A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. 
 M. Tan and Q. V. Le, ``EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks,'' in \emph{Proc. Int. Conf. Machine Learning (ICML)}, vol. 97, pp. 6105--6114, 2019.
 
 \bibitem{gpiosenka}
-G. Piosenka, ``Butterfly \& Moths Image Classification — 100 Species,'' Kaggle Dataset, 2023. [Online]. Available: \url{https://www.kaggle.com/datasets/gpiosenka/butterfly-images40-species}
+G. Piosenka, ``Butterfly \& Moths Image Classification --- 100 Species,'' Kaggle Dataset, 2023. [Online]. Available: \url{https://www.kaggle.com/datasets/gpiosenka/butterfly-images40-species}
 
 \bibitem{selvaraju2017gradcam}
 R. R. Selvaraju, M. Cogswell, A. Das, R. Vedantam, D. Parikh, and D. Batra, ``Grad-CAM: Visual Explanations from Deep Networks via Gradient-Based Localization,'' in \emph{Proc. IEEE Int. Conf. Computer Vision (ICCV)}, pp. 618--626, 2017.
@@ -146,16 +273,47 @@ R. Wightman, ``PyTorch Image Models (timm),'' GitHub, 2019. [Online]. Available:
 
 \appendix
 \section{Project Links and Resources}
-The complete system, including raw Jupyter Notebooks, the ablation pipeline, and the Streamlit deployment structure, is openly accessible.
 
 \begin{itemize}
-    \item \textbf{GitHub Repository:} \url{https://github.com/Anurag-Kacholiya/Butterfly-Species-Detection}
-
-    \item \textbf{Hugging Face CLIP Model (Zero-Shot baseline):} \url{https://huggingface.co/openai/clip-vit-base-patch32}
-
+    \item \textbf{Live Project (Streamlit Deployed) :} \url{https://srushtipekamwar-smai-assignment-3-app-dqqu7l.streamlit.app/}
+    \item \textbf{GitHub Repository:} \url{https://github.com/SrushtiPekamwar/SMAI_Assignment_3}
+    \item \textbf{Hugging Face Model Hub:} \url{https://huggingface.co/Anurag29104/butterfly-classifier}
+    \item \textbf{CLIP Zero-Shot model:} \url{https://huggingface.co/openai/clip-vit-base-patch32}
     \item \textbf{EfficientNet-B0 via timm:} \url{https://github.com/huggingface/pytorch-image-models}
 \end{itemize}
 
-\textbf{Information Retrieval Note:} To ensure the Streamlit application performs inferencing rapidly, Wikipedia summaries, specific IUCN Conservation status mappings, and fun biological facts are strictly pre-cached inside the repository's \texttt{cached\_species\_info.json} rather than generating HTTP traffic at runtime.
+\textbf{Caching strategy:} Wikipedia summaries, IUCN conservation status mappings, and biological fun facts are pre-fetched and stored in \texttt{data/species\_metadata.json} so that the Streamlit app serves rich species information without runtime HTTP requests.
+
+\section{Frontend Screenshots}
+
+The following screenshots demonstrate the user interface and functionality of the deployed Streamlit application.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{Landing.png}
+    \caption{Landing page of the application, ready for user image upload.}
+    \label{fig:ss_landing}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{Model_selection.png}
+    \caption{Model selection dropdown in the sidebar, allowing the user to choose between the Phase 1, Phase 2, and Full Fine-Tuned models.}
+    \label{fig:ss_model_selection}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{Result_Table.png}
+    \caption{Top-3 probability results table displayed immediately after inference.}
+    \label{fig:ss_result_table}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{Prediction_with_wiki_info.png}
+    \caption{Dynamic layout showing the model's prediction along with the fetched Wikipedia summary, IUCN status and 3 fun facts.}
+    \label{fig:ss_prediction}
+\end{figure}
 
 \end{document}
