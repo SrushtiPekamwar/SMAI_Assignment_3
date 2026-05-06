@@ -10,11 +10,31 @@ Built for SMAI Assignment T7.4 using the [100-species Kaggle dataset](https://ww
 
 | Model | Strategy | Test Top-1 | Test Top-3 | Macro F1 |
 |---|---|:---:|:---:|:---:|
-| Author Keras H5 (baseline) | Pre-trained, no extra training | 97.60% | 99.60% | — |
-| **EfficientNet-B0 ✅** | Linear probe → fine-tune last block | **96.60%** | **99.40%** | **96.45%** |
-| CLIP ViT-B/32 | Zero-shot, 5-prompt ensemble | 28.20% | 44.20% | 24.57% |
+| Baseline (Keras) | Pre-trained, no extra training | 97.60% | 99.60% | — |
+| EfficientNet-B0 | Linear Probe | 92.20% | ~95.50% | ~89.50% |
+| **EfficientNet-B0 ✅** | **Last Block Fine-Tune** | **97.00%** | **99.20%** | **96.92%** |
+| EfficientNet-B0 | Full Fine-Tune | 97.00% | 99.20% | 96.87% |
+| CLIP ViT-B/32 | Zero-shot ensemble | 30.80% | 44.20% | 24.57% |
 
-The deployed app uses the **EfficientNet-B0** model (16 MB `.pth` file).
+The deployed app allows switching between the EfficientNet-B0 ablation models (all ~16 MB `.pth` files) downloaded seamlessly from the Hugging Face Hub.
+
+---
+
+## Frontend Screenshots
+
+Here is a glimpse of the application interface:
+
+![Landing Page](frontend_SS/Landing.png)
+*Landing page of the application, ready for user image upload.*
+
+![Model Selection](frontend_SS/Model_selection.png)
+*Model selection dropdown in the sidebar.*
+
+![Prediction UI](frontend_SS/Prediction_with_wiki_info.png)
+*Dynamic layout showing the model's prediction along with the fetched Wikipedia summary, IUCN status, and 3 fun facts.*
+
+![Result Table](frontend_SS/Result_Table.png)
+*Top-3 probability results table displayed immediately after inference.*
 
 ---
 
@@ -23,8 +43,8 @@ The deployed app uses the **EfficientNet-B0** model (16 MB `.pth` file).
 ### 1. Clone
 
 ```bash
-git clone https://github.com/Anurag-Kacholiya/Butterfly-Species-Detection.git
-cd Butterfly-Species-Detection
+git clone https://github.com/SrushtiPekamwar/SMAI_Assignment_3.git
+cd SMAI_Assignment_3
 ```
 
 ### 2. Install dependencies
@@ -59,9 +79,6 @@ Butterfly-Species-Detection/
 ├── requirements.txt        # pip dependencies
 ├── report.tex              # LaTeX technical report
 │
-├── model/
-│   └── efficientnet_butterfly.pth   # Fine-tuned EfficientNet-B0 weights (16 MB)
-│
 ├── data/
 │   ├── class_names.json             # Ordered list of 100 species
 │   ├── species_metadata.json        # Wiki summaries, IUCN status, fun facts
@@ -69,12 +86,10 @@ Butterfly-Species-Detection/
 │       └── *.jpg                    # One image per species
 │
 ├── notebooks/
-│   ├── 01_efficientnet_finetuning.ipynb   # EfficientNet training pipeline (run on Kaggle)
-│   └── 02_clip_zeroshot.ipynb            # CLIP zero-shot pipeline (run on Kaggle)
+│   ├── 01_efficientnet_finetuning_final.ipynb   # EfficientNet training pipeline
+│   └── 02_clip_zeroshot.ipynb                   # CLIP zero-shot pipeline
 │
-└── results/
-    ├── efficientnet/        # Training curves, confusion matrix, Grad-CAM, UMAP, ablation
-    └── clip/                # Ablation plots, confusion matrix, UMAP, misclassifications
+└── frontend_SS/                     # Screenshots for documentation
 ```
 
 > The raw dataset (`archive/`) is not committed — download from Kaggle:
@@ -86,46 +101,28 @@ Butterfly-Species-Detection/
 
 ### Approach 1 — Zero-Shot CLIP (`02_clip_zeroshot.ipynb`)
 
-Uses `openai/clip-vit-base-patch32` with **no gradient updates**. We ensemble 5 prompt templates per species (e.g. `"A close-up macro shot of a {species} butterfly"`) to create robust text anchors and compare via cosine similarity.
+Uses `openai/clip-vit-base-patch32` with **no gradient updates**. We ensemble 7 prompt templates per species (e.g. `"A close-up macro shot of a {species} butterfly"`) to create robust text anchors and compare via cosine similarity.
 
-**Result: 28.2% Top-1.** CLIP knows what a butterfly looks like, but cannot distinguish 100 species whose differences live in wing venation details outside its training distribution.
+**Result: 30.8% Top-1.** CLIP knows what a butterfly looks like, but cannot distinguish 100 species whose differences live in wing venation details outside its training distribution.
 
-### Approach 2 — Fine-Tuned EfficientNet-B0 (`01_efficientnet_finetuning.ipynb`)
+### Approach 2 — Strategic Fine-Tuning on EfficientNet-B0 (`01_efficientnet_finetuning_final.ipynb`)
 
 Two-phase transfer learning on `efficientnet_b0` (timm, ImageNet pre-trained):
 
-| Phase | Action | Trainable Params | Epochs | Val Acc |
+| Phase | Action | Trainable Params | Epochs | Best Val Acc |
 |---|---|:---:|:---:|:---:|
-| 1 — Linear Probe | Freeze backbone; train head only | 0.13 M | 5 | ~89.8% |
-| 2 — Last Block Fine-Tune | Unfreeze `blocks.6` + head | 1.27 M (31%) | 10 | ~96.0% |
+| 1 — Linear Probe | Freeze backbone; train head only | ~1.3 K | 15 | 92.20% |
+| 2 — Last Block FT | Unfreeze `blocks.6` + head | 2.9 M (70%) | 15 | 96.20% |
 
-**Result: 96.6% Top-1, 99.4% Top-3.** Matching full fine-tune accuracy (all 4.14 M params) at 3× lower cost.
+**Result: 97.0% Top-1, 99.2% Top-3.** Matching full fine-tune accuracy (all 5.3 M params) at nearly half the trainable parameter cost.
 
-Grad-CAM confirms the model focuses on wing patterns and thorax — not the background.
-
----
-
-## Bugs Fixed vs Original
-
-| Location | Bug | Fix |
-|---|---|---|
-| `app.py` | `st.image(..., width="stretch")` — invalid argument, crashes at runtime | `use_container_width=True` |
-| `app.py` | `st.dataframe(..., width="stretch")` — same issue | `use_container_width=True` |
-| `data/species_metadata.json` | Key `"AMERICAN SNOUT"` didn't match class name `"AMERICAN SNOOT"` | Renamed key |
-| `data/species_metadata.json` | Wiki summary facts were a single run-on string | Each numbered fact now on its own line |
+Grad-CAM analysis confirms the model explicitly focuses on wing patterns and thorax — not the background habitat.
 
 ---
 
 ## Deployment (Streamlit Community Cloud)
 
-1. Push the repo to GitHub (model weights are ~16 MB, within the 100 MB file limit).
+1. Push the repo to GitHub.
 2. Go to [share.streamlit.io](https://share.streamlit.io) → **New app**.
-3. Set: Repository = `Anurag-Kacholiya/Butterfly-Species-Detection`, Branch = `main`, Main file = `app.py`.
+3. Set: Repository = `SrushtiPekamwar/SMAI_Assignment_3`, Branch = `main`, Main file = `app.py`.
 4. Click **Deploy** — live in ~3 minutes at a `*.streamlit.app` URL.
-
-> If the `.pth` file exceeds GitHub's limit in future, track it with Git LFS:
-> ```bash
-> git lfs install
-> git lfs track "model/*.pth"
-> git add .gitattributes
-> ```
